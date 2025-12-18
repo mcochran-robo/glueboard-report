@@ -72,6 +72,12 @@
       reader.readAsDataURL(file);
     });
   }
+window.addEventListener("error", (e) => {
+  const statusEl = document.getElementById("status");
+  const rawEl = document.getElementById("raw");
+  if (statusEl) statusEl.textContent = "JS error: " + (e.message || "unknown");
+  if (rawEl) rawEl.textContent = (e.error && e.error.stack) ? e.error.stack : String(e.message || e);
+});
 
       // === CONFIG ===
       const WORKFLOW_URL = "https://serverless.roboflow.com/vision-project-0y4uc/workflows/sam3-with-prompts-2";
@@ -82,8 +88,11 @@
       // If your workflow outputs live under result.outputs or result.results etc,
       // this helper will find them by searching keys.
       function deepGet(obj, path) {
-        return path.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj);
-      }
+  return path.split(".").reduce((acc, k) => {
+    if (acc && acc[k] !== undefined) return acc[k];
+    return undefined;
+  }, obj);
+}
 
       function findFirst(obj, candidates) {
         for (const p of candidates) {
@@ -175,6 +184,52 @@
 
       // === Main ===
       document.getElementById("run").onclick = async () => {
+  const statusEl = document.getElementById("status");
+  const rawEl = document.getElementById("raw");
+
+  statusEl.textContent = "Starting...";
+  rawEl.textContent = "{}";
+
+  const fileInput = document.getElementById("imageFile");
+  const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+
+  if (!file) {
+    statusEl.textContent = "Please select or take a photo.";
+    return;
+  }
+
+  try {
+    statusEl.textContent = "Converting image...";
+    const base64Image = await fileToBase64(file);
+
+    statusEl.textContent = "Running...";
+    const response = await fetch(WORKFLOW_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: API_KEY,
+        inputs: {
+          image: { type: "base64", value: base64Image },
+          prompts: DEFAULT_PROMPTS
+        }
+      })
+    });
+
+    const result = await response.json();
+    rawEl.textContent = JSON.stringify(result, null, 2);
+
+    statusEl.textContent = response.ok ? "Done." : `Error (${response.status}) — see Raw response.`;
+
+    // If you already have setCoverage / setIOC functions, keep these:
+    // (If you don't, comment them out.)
+    // setCoverage(...); setIOC(...);
+
+  } catch (err) {
+    statusEl.textContent = "Failed — see Raw response.";
+    rawEl.textContent = String(err);
+  }
+};
+
         const fileInput = document.getElementById("imageFile");
 const file = fileInput.files[0];
 
