@@ -63,8 +63,8 @@
       <pre id="raw">{}</pre>
     </details>
 
-   <script>
-  // Convert uploaded file to a data: URL (base64)
+  <script>
+  // ---------- Utilities ----------
   function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -74,191 +74,147 @@
     });
   }
 
-  // Show JS errors on the page (super helpful on GitHub Pages)
+  function uniqPreserveOrder(arr) {
+    const seen = new Set();
+    return arr.filter(x => x && !seen.has(x) && seen.add(x));
+  }
+
+  // Show JS errors on-page (critical for GitHub Pages)
   window.addEventListener("error", (e) => {
     const statusEl = document.getElementById("status");
     const rawEl = document.getElementById("raw");
-    if (statusEl) statusEl.textContent = "JS error: " + (e.message || "unknown");
-    if (rawEl) rawEl.textContent = (e.error && e.error.stack) ? e.error.stack : String(e.message || e);
+    if (statusEl) statusEl.textContent = "JS error: " + e.message;
+    if (rawEl) rawEl.textContent = e.error?.stack || String(e.message);
   });
 
-  // === CONFIG ===
+  // ---------- Config ----------
   const WORKFLOW_URL =
     "https://serverless.roboflow.com/vision-project-0y4uc/workflows/sam3-with-prompts-2";
   const API_KEY = "Y7AWCmC4VdWbClU92tVw";
-  const DEFAULT_PROMPTS = ["glueboard","insects","fly","gnat","bug","Beetle","moth"];
+  const PROMPTS = ["glueboard","insects","fly","gnat","bug","Beetle","moth"];
 
-  // Safe deep getter for paths like "outputs.coverage_pct"
-  function deepGet(obj, path) {
-    return path.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj);
-  }
-  function findFirst(obj, candidates) {
-    for (const p of candidates) {
-      const v = deepGet(obj, p);
-      if (v !== undefined) return v;
-    }
-    return undefined;
-  }
-
-  // Flatten list-of-lists like [[], ["x"], [], ["y"]]
-  function flattenStrings(value) {
-    const out = [];
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (Array.isArray(item)) out.push(...item.filter(s => typeof s === "string" && s.trim()));
-        else if (typeof item === "string" && item.trim()) out.push(item);
-      }
-    } else if (typeof value === "string" && value.trim()) {
-      out.push(value);
-    }
-    return out;
-  }
-  function uniqPreserveOrder(arr) {
-    const seen = new Set();
-    const out = [];
-    for (const s of arr) {
-      if (!seen.has(s)) { seen.add(s); out.push(s); }
-    }
-    return out;
-  }
-  function sumNumbers(value) {
-    if (Array.isArray(value)) return value.reduce((acc, x) => acc + (typeof x === "number" ? x : 0), 0);
-    return typeof value === "number" ? value : 0;
-  }
-
-  // === UI helpers ===
+  // ---------- UI helpers ----------
   function setCoverage(pct) {
     const el = document.getElementById("coveragePct");
-    const note = document.getElementById("coverageNote");
-
-    if (typeof pct !== "number" || !isFinite(pct)) {
+    if (typeof pct === "number" && isFinite(pct)) {
+      el.textContent = pct.toFixed(1) + "%";
+    } else {
       el.textContent = "—%";
-      note.textContent = "";
-      return;
     }
-    el.textContent = `${pct.toFixed(1)}%`;
-    note.textContent = pct > 0 ? "Higher % means more surface covered by detected insects." : "";
   }
 
-  function setIOC(totalCount, uniqueList) {
+  function setIOC(count, names) {
     const card = document.getElementById("iocCard");
     const countEl = document.getElementById("iocCount");
     const listWrap = document.getElementById("iocListWrap");
     const listEl = document.getElementById("iocList");
-    const stateTitle = document.querySelector("#iocState > div:first-child");
+    const titleEl = document.querySelector("#iocState > div:first-child");
 
-    countEl.textContent = String(totalCount);
+    if (count === "—") {
+      countEl.textContent = "—";
+      titleEl.textContent = "Running analysis…";
+      titleEl.className = "muted";
+      card.classList.remove("ok","warn");
+      listWrap.classList.add("hidden");
+      return;
+    }
 
-    if (totalCount > 0) {
-      card.classList.remove("ok");
+    countEl.textContent = count;
+
+    if (count > 0) {
       card.classList.add("warn");
-      stateTitle.textContent = "⚠️ Insects of Concern Detected";
-      stateTitle.className = "warn-title";
+      card.classList.remove("ok");
+      titleEl.textContent = "⚠️ Insects of Concern Detected";
+      titleEl.className = "warn-title";
     } else {
-      card.classList.remove("warn");
       card.classList.add("ok");
-      stateTitle.textContent = "✅ No Insects of Concern";
-      stateTitle.className = "ok-title";
+      card.classList.remove("warn");
+      titleEl.textContent = "✅ No Insects of Concern";
+      titleEl.className = "ok-title";
     }
 
     listEl.innerHTML = "";
-    if (uniqueList.length > 0) {
+    if (names.length > 0) {
       listWrap.classList.remove("hidden");
-      for (const item of uniqueList) {
+      names.forEach(n => {
         const li = document.createElement("li");
-        li.textContent = item;
+        li.textContent = n;
         listEl.appendChild(li);
-      }
+      });
     } else {
       listWrap.classList.add("hidden");
     }
   }
 
-  // Attach handler after DOM is ready (avoids null element issues)
+  // ---------- Main ----------
   window.addEventListener("DOMContentLoaded", () => {
     const runBtn = document.getElementById("run");
     const statusEl = document.getElementById("status");
     const rawEl = document.getElementById("raw");
 
     runBtn.onclick = async () => {
-      statusEl.textContent = "Starting...";
+      statusEl.textContent = "Starting…";
       rawEl.textContent = "{}";
       setCoverage(undefined);
-      setIOC(0, []);
+      setIOC("—", []);
 
-      const fileInput = document.getElementById("imageFile");
-      const file = fileInput?.files?.[0];
-
+      const file = document.getElementById("imageFile")?.files?.[0];
       if (!file) {
         statusEl.textContent = "Please select or take a photo.";
         return;
       }
 
       try {
-        statusEl.textContent = "Converting image...";
-        const base64Image = await fileToBase64(file);
+        statusEl.textContent = "Uploading image…";
+        const base64 = await fileToBase64(file);
 
-        statusEl.textContent = "Running...";
-        const response = await fetch(WORKFLOW_URL, {
+        statusEl.textContent = "Running workflow…";
+        const resp = await fetch(WORKFLOW_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             api_key: API_KEY,
             inputs: {
-              image: { type: "base64", value: base64Image },
-              prompts: DEFAULT_PROMPTS
+              image: { type: "base64", value: base64 },
+              prompts: PROMPTS
             }
           })
         });
 
-        const result = await response.json();
+        const result = await resp.json();
         rawEl.textContent = JSON.stringify(result, null, 2);
 
-        // --- Update these paths if your workflow nests outputs differently ---
-        const coverageCandidatePaths = [
-          "coverage_pct",
-          "outputs.coverage_pct",
-          "result.coverage_pct",
-          "results.coverage_pct",
-          "outputs.total_coverage_pct",
-          "outputs.glueboard_coverage_pct",
-        ];
-        const iocCountPaths = [
-          "total_insects_of_concern",
-          "outputs.total_insects_of_concern",
-          "outputs.insects_of_concern_count",
-          "insects_of_concern_count",
-        ];
-        const iocListPaths = [
-          "unique_insects_of_concern",
-          "outputs.unique_insects_of_concern",
-          "outputs.insects_of_concern",
-          "insects_of_concern",
-        ];
+        // -------- Parse YOUR workflow output --------
+        const out = Array.isArray(result.outputs)
+          ? result.outputs[0]
+          : result.outputs;
 
-        let coveragePct = findFirst(result, coverageCandidatePaths);
-        if (typeof coveragePct === "string") {
-          const n = Number(coveragePct);
-          coveragePct = Number.isFinite(n) ? n : undefined;
-        }
+        // Coverage
+        setCoverage(out?.["Coverage Percent"]);
 
-        const iocCount = findFirst(result, iocCountPaths);
-        const totalIOC = sumNumbers(iocCount);
+        // Insects of concern aggregation
+        const rows = out?.summarize_insect_of_concern_responses || [];
+        let total = 0;
+        let names = [];
 
-        const iocList = findFirst(result, iocListPaths);
-        const unique = uniqPreserveOrder(flattenStrings(iocList));
+        rows.forEach(r => {
+          total += Number(r.insects_of_concern_count || 0);
+          if (Array.isArray(r.insects_of_concern)) {
+            names.push(...r.insects_of_concern);
+          }
+        });
 
-        setCoverage(coveragePct);
-        setIOC(totalIOC, unique);
+        setIOC(total, uniqPreserveOrder(names));
 
-        statusEl.textContent = response.ok ? "Done." : `Error (${response.status}) — see Raw response.`;
+        statusEl.textContent = "Done.";
       } catch (err) {
-        statusEl.textContent = "Failed — see Raw response.";
-        rawEl.textContent = String(err?.stack || err);
+        statusEl.textContent = "Failed — see details below.";
+        rawEl.textContent = err?.stack || String(err);
       }
     };
   });
 </script>
+
 
   </body>
 </html>
