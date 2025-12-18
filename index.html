@@ -31,7 +31,7 @@
     <h1>Glueboard Report</h1>
     <p class="sub">Paste an image URL, run the workflow, and view a summarized report.</p>
 
-    <input id="imageUrl" placeholder="https://.../image.jpg" />
+    <input id="imageFile" type="file" accept="image/*" capture="environment" />
     <div class="row">
       <button id="run">Run Analysis</button>
       <span id="status" class="muted"></span>
@@ -64,6 +64,15 @@
     </details>
 
     <script>
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
       // === CONFIG ===
       const WORKFLOW_URL = "https://serverless.roboflow.com/vision-project-0y4uc/workflows/sam3-with-prompts-2";
       const API_KEY = "Y7AWCmC4VdWbClU92tVw"; // visible on GitHub Pages (trusted users only)
@@ -166,7 +175,14 @@
 
       // === Main ===
       document.getElementById("run").onclick = async () => {
-        const imageUrl = document.getElementById("imageUrl").value.trim();
+        const fileInput = document.getElementById("imageFile");
+const file = fileInput.files[0];
+
+if (!file) {
+  statusEl.textContent = "Please select or take a photo.";
+  return;
+}
+
         const statusEl = document.getElementById("status");
         const rawEl = document.getElementById("raw");
 
@@ -184,14 +200,19 @@
           const response = await fetch(WORKFLOW_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              api_key: API_KEY,
-              inputs: {
-                image: { type: "url", value: imageUrl },
-                prompts: DEFAULT_PROMPTS
-              }
-            })
-          });
+         const base64Image = await fileToBase64(file);
+
+body: JSON.stringify({
+  api_key: API_KEY,
+  inputs: {
+    image: {
+      type: "base64",
+      value: base64Image
+    },
+    prompts: DEFAULT_PROMPTS
+  }
+})
+;
 
           const result = await response.json();
           rawEl.textContent = JSON.stringify(result, null, 2);
